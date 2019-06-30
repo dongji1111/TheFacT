@@ -6,7 +6,7 @@ This is the implementation for the paper titled "The FacT: Taming Latent Factor 
 Yiyi Tao, Yiling Jia, Nan Wang and Hongning Wang. The FacT: Taming Latent Factor Models for Explainability with Factorization Trees, SIGIR 2019.
 
 # Quick Start (For Linux and Mac)
-#### The data format
+#### Data format
 In ./data/yelp_train.txt
 ```
 user_id, item_id, rating, [list of feature opinions]
