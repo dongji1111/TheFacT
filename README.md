@@ -20,3 +20,4 @@ user_id = 1, item_id = 0, rating = 4, rating for feature 1 = 1, rating for featu
 $ cd code
 $ python main.py --train_file ../data/yelp_train.txt --test_file ../data/yelp_test.txt --num_dim 20 --max_depth 6
 ```
+The results will be stored in ./results/
