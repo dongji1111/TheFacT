@@ -11,8 +11,8 @@ In ./data/yelp_train.txt
 ```
 user_id, item_id, rating, [list of feature opinions]
 ```
-Example:
-1, 0, 4, 1 1 2 1
+Example: \\
+1, 0, 4, 1 1 2 1 \\
 user_id = 1, item_id = 0, rating = 4, rating for feature 1 = 1, rating for feature 2 = 1.
 
 #### How to run the algorithm
