@@ -23,17 +23,21 @@ def getRatingMatrix(filename):
                 feature.append(i)
 
     data = np.array(data)
+    # calculate the number of users, items and features in the dataset
     num_users = data[:, 0].max() + 1
     print ("Number of users: ", num_users)
     num_items = data[:, 1].max() + 1
     print ("Number of items: ", num_items)
     num_features = max(feature) + 1
     print ("Number of features: ", num_features)
-
+    
+    # create rating matrix, and user_opinion, item_opinion matrices
+    # user_opinion: user preference for each feature
+    # item_opinion: item performance on each feature
     rating_matrix = np.zeros((num_users, num_items), dtype=float)
     user_opinion = np.zeros((num_users, num_features), dtype=float)
     item_opinion = np.zeros((num_items, num_features), dtype=float)
-
+    # update the matrices with input data
     for i in range(len(data)):
         user_id, item_id, rating = data[i]
         rating_matrix[user_id][item_id] = rating
@@ -62,7 +66,10 @@ def getRatingMatrix(filename):
                     item_opinion[i, j] = 0
     return rating_matrix, user_opinion, item_opinion
 
-
+# calculate NDCG for the prediction
+# predict: predicted label
+# gt: ground truth
+# N: parameter for NDCG
 def getNDCG(predict, gt, N):
     NDCG = []
     predict = np.array(predict)
@@ -98,6 +105,8 @@ def getNDCG(predict, gt, N):
 # lamda_user, lamda_item are regularization  parameters,
 # noOfIteration is an integer specifying the number of iterations to run,
 # file_training is a string specifying the file directory for training dataset.
+# k: the latent dimension
+# learningRate:
 def MF(k, learningRate, lmd_u, lmd_v, noOfIteration, file_training):
 
     file = open(file_training, 'r')
