@@ -1,11 +1,14 @@
 # Import the Required Libraries
-import autograd.numpy as np
+# import autograd.numpy as np
+import numpy as np
 import math
-import decision_tree_f as dtree
+import decision_tree as dt
 import optimization as opt
 import argparse
+from sklearn.metrics import mean_squared_error
 
 
+# load the data
 def getRatingMatrix(filename):
     # Open the file for reading data
     data = []
@@ -38,6 +41,7 @@ def getRatingMatrix(filename):
     user_opinion = np.zeros((num_users, num_features), dtype=float)
     item_opinion = np.zeros((num_items, num_features), dtype=float)
     # update the matrices with input data
+    # get the accumulated feature opinion scores for users and items.
     for i in range(len(data)):
         user_id, item_id, rating = data[i]
         rating_matrix[user_id][item_id] = rating
@@ -45,26 +49,32 @@ def getRatingMatrix(filename):
             user_opinion[user_id][data_fo[i][j]] += data_fo[i][j + 1]
             item_opinion[item_id][data_fo[i][j]] += data_fo[i][j + 1]
 
-    for i in range(len(user_opinion)):
-        for j in range(len(user_opinion[0])):
-            if user_opinion[i, j] > 0:
-                user_opinion[i, j] = 1
-            else:
-                if user_opinion[i, j] < 0:
-                    user_opinion[i, j] = -1
-                else:
-                    user_opinion[i, j] = 0
+    # use the sign function to change the accumulated opinion matrices
+    user_opinion = np.sign(user_opinion)
+    item_opinion = np.sign(item_opinion)
 
-    for i in range(len(item_opinion)):
-        for j in range(len(item_opinion[0])):
-            if item_opinion[i, j] > 0:
-                item_opinion[i, j] = 1
-            else:
-                if item_opinion[i, j] < 0:
-                    item_opinion[i, j] = -1
-                else:
-                    item_opinion[i, j] = 0
+
+    # for i in range(len(user_opinion)):
+    #     for j in range(len(user_opinion[0])):
+    #         if user_opinion[i, j] > 0:
+    #             user_opinion[i, j] = 1
+    #         else:
+    #             if user_opinion[i, j] < 0:
+    #                 user_opinion[i, j] = -1
+    #             else:
+    #                 user_opinion[i, j] = 0
+
+    # for i in range(len(item_opinion)):
+    #     for j in range(len(item_opinion[0])):
+    #         if item_opinion[i, j] > 0:
+    #             item_opinion[i, j] = 1
+    #         else:
+    #             if item_opinion[i, j] < 0:
+    #                 item_opinion[i, j] = -1
+    #             else:
+    #                 item_opinion[i, j] = 0
     return rating_matrix, user_opinion, item_opinion
+
 
 # calculate NDCG for the prediction
 # predict: predicted label
@@ -100,19 +110,48 @@ def getNDCG(predict, gt, N):
     return ndcg
 
 
-# k is the latent dimension for matrix factorization.
-# learningRate is the  rate for parameter updating,
-# lamda_user, lamda_item are regularization  parameters,
-# noOfIteration is an integer specifying the number of iterations to run,
-# file_training is a string specifying the file directory for training dataset.
-# k: the latent dimension
-# learningRate:
-def MF(k, learningRate, lmd_u, lmd_v, noOfIteration, file_training):
+# solve ridge regression with stochastic gradient descent
+# num_dim: the dimension of latent factors
+# lr: learning rate
+# lambda_u: regularization parameter for user vectors
+# lambda_v: regularization parameter for item vectors
+# rating_matrix: the ground truth
+def MatrixFactorization(num_dim, lr, lamda_u, lambda_v, num_iters, rating_matrix):
 
-    file = open(file_training, 'r')
+    # get the nonzero values of the rating matrix
+    np.random.seed(0)
+    user_index, item_index = rating_matrix.nonzero()
+    mask_matrix = rating_matrix.nonzero()
+    num_records = len(user_index)
+    num_users = user_index.max() + 1
+    num_items = item_index.max() + 1
+    # randomly initialize the user, item vectors.
+    user_vector = np.random.rand(num_users, num_dim)
+    item_vector = np.random.rand(num_items, num_dim)
+
+    # for each iteration
+    for it in range(num_iters):
+        # for each non-zero rating records
+        for i in range(num_records):
+            u_id, v_id = user_index[i], item_index[i]
+            r = rating_matrix[u_id, v_id]
+            print u_id, v_id, r
+            # update latent factors of users and items
+            user_vector[u_id] += lr * ((r - np.dot(user_vector[u_id], item_vector[v_id])) * item_vector[v_id] - lambda_u * user_vectors[u_id])
+            item_vector[v_id] += lr * ((r - np.dot(user_vector[u_id], item_vector[v_id])) * user_vector[u_id] - lambda_v * item_vectors[v_id])
+            
+        # calculte the training error
+        pred = np.dot(user_vector, item_vector.T)
+        error = mean_squared_error(pred[mask_matrix], rating_matrix[mask_matrix])
+    return user_vector, item_vector
+        
+
+def MF(k, lr, lambda_u, lambda_v, num_iters, filename):
+
+    file = open(filename, 'r')
     lines = file.readlines()
-    numberOfUsers = 0
-    numberOfItems = 0
+    num_users = 0
+    num_items = 0
     userID = np.zeros((len(lines)), dtype=int)
     itemID = np.zeros((len(lines)), dtype=int)
     rating = np.zeros((len(lines)))
@@ -151,57 +190,66 @@ def MF(k, learningRate, lmd_u, lmd_v, noOfIteration, file_training):
     return user_vectors, item_vectors
 
 
-def alternateOptimization(opinion_matrix, opinion_matrix_I, rating_matrix, NUM_OF_FACTORS, MAX_DEPTH, File):
+def AlternateOptimization(rating_matrix, user_opinion, item_opinion, num_dim, max_depth):
     # Save and print the Number of Users and Movies
-    NUM_USERS = rating_matrix.shape[0]
-    NUM_MOVIES = rating_matrix.shape[1]
-    NUM_FEATURE = opinion_matrix.shape[1]
-    print("Number of Users", NUM_USERS)
-    print("Number of Item", NUM_MOVIES)
-    print("Number of Feature", NUM_FEATURE)
-    print("Number of Latent Factors: ", NUM_OF_FACTORS)
+    num_users, num_items = rating_matrix.shape
+    num_features = user_opinion.shape[1]
+    print("Number of users", num_users)
+    print("Number of items", num_items)
+    print("Number of features", num_features)
+    print("Number of latent dimensions: ", num_dim)
+    print("Maximum depth of the regression tree: ", max_depth)
+    # initialize the parameters
+    lr = 0.05
+    lambda_u = 0.02
+    lambda_v = 0.02
+    num_iters = 50
 
     # Create the user and item profile vector of appropriate size.
     # Initialize the item vectors according to MF
-    user_vectors, item_vectors = MF(20, 0.05, 0.02, 0.02, 50, File)
+    user_vector, item_vector = MatrixFactorization(num_dim, lr, lambda_u, lambda_v, num_iters, rating_matrix)
+    pred = np.dot(user_vector, item_vector.T)
 
     i = 0
-    print("Entering Main Loop of alternateOptimization")
-    decTree = dtree.Tree(dtree.Node(None, 1), NUM_OF_FACTORS, MAX_DEPTH)
-    # Do converge Check
+    print("Entering Main Loop of AlternateOptimization")
+    tree = dt.Tree(dt.Node(None, 1), num_dim, max_depth)
+    # create the tree with i=5 iterations.
     while i < 5:
-        # Create the decision Tree based on item_vectors
-        print("Creating Tree.. for i = ", i, "for user")
-        decTree = dtree.Tree(dtree.Node(None, 1), NUM_OF_FACTORS, MAX_DEPTH)
-        decTree.fitTree_U(decTree.root, opinion_matrix, rating_matrix, item_vectors, NUM_OF_FACTORS)
+        # log the previous results
+        user_vector_old = user_vector
+        item_vector_old = item_vector
+        pred_old = pred
 
-        print("Getting the user vectors from tree")
+
+        # Create the decision Tree based on item_vectors
+        print("Creating tree, iter = ", i, "for user")
+        user_tree = dt.Tree(dt.Node(None, 1), num_dim, max_depth)
+        user_tree.fitTree_U(user_tree.root, user_opinion, rating_matrix, item_vector, num_dim)
+
+        print("Getting the user vectors from tree.")
         # Calculate the User vectors using dtree
-        user_vectors_before = user_vectors
-        user_vectors = decTree.getVectors_f(opinion_matrix, NUM_OF_FACTORS)
+        user_vector = user_tree.getVectors_f(user_opinion, num_dim)
         # adding personalized term
-        for index in range(len(rating_matrix)):
-            indice = np.array([index])
-            user_vectors[index] = opt.cf_user(rating_matrix, item_vectors, user_vectors[index], indice, NUM_OF_FACTORS)
+        for idx in range(num_users):
+            indice = np.array([idx])
+            user_vector[idx] = opt.cf_user(rating_matrix, item_vector, user_vector[idx], indice, num_dim)
 
         print("Creating Tree.. for i = ", i, "for item")
-        decTreeI = dtree.Tree(dtree.Node(None, 1), NUM_OF_FACTORS, MAX_DEPTH)
-        decTreeI.fitTree_I(decTreeI.root, opinion_matrix_I, rating_matrix, user_vectors, NUM_OF_FACTORS)
+        item_tree = dt.Tree(dt.Node(None, 1), num_dim, max_depth)
+        item_tree.fitTree_I(item_tree.root, item_opinion, rating_matrix, user_vector, num_dim)
 
         print("Getting the item vectors from tree")
-        item_vectors_before = item_vectors
-        item_vectors = decTreeI.getVectors_f(opinion_matrix_I, NUM_OF_FACTORS)
-        for index in range(len(rating_matrix[0])):
-            indice = np.array([index])
-            item_vectors[index] = opt.cf_item(rating_matrix, user_vectors, item_vectors[index], indice, NUM_OF_FACTORS)
+        item_vector = decTreeI.getVectors_f(item_opinion, num_dim)
+        for idx in range(num_items):
+            indice = np.array([idx])
+            item_vectors[idx] = opt.cf_item(rating_matrix, user_vectors, item_vectors[idx], indice, num_dim)
 
         # Calculate Error for Convergence check
-        Pred_before = np.dot(user_vectors_before, item_vectors_before.T)
-        Pred = np.dot(user_vectors, item_vectors.T)
-        Error = Pred_before - Pred
-        Error = Error[np.nonzero(Error)]
-        error = np.dot(Error, Error)
-        if error < 0.1:
+        pred = np.dot(user_vector, item_vector.T)
+
+        error = (pred_old - pred).flatten()
+        err = np.dot(error, error)
+        if err < 0.1:
             break
         i = i + 1
 
@@ -247,7 +295,7 @@ if __name__ == "__main__":
     rating_matrix, user_opinion, item_opinion = getRatingMatrix(train_file)
 
     # build the Factorization tree with the training dataset
-    user_tree, item_tree, user_vector, item_vector = alternateOptimization(user_opinion, item_opinion, rating_matrix, num_dim, max_depth, train_file)
+    user_tree, item_tree, user_vector, item_vector = AlternateOptimization(user_opinion, item_opinion, rating_matrix, num_dim, max_depth, train_file)
     pred_rating = np.dot(user_vector, item_vector.T)
     pred_rating[np.where[rating_matrix > 0]] = 0.0
     # save the results
