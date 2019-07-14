@@ -1,6 +1,7 @@
 # import autograd.numpy as np
 # from autograd import grad
 # import random
+import numpy as np
 
 lmd_BPR = 100
 lmd_u = 1
@@ -8,6 +9,8 @@ lmd_v = 1
 
 
 def lossfunction_all(rating_matrix, item_vectors, user_vectors, flag):
+    # print "current_vector: ", user_vectors
+
     if flag == 1:  # used in user tree construction, user_vectors is a 1*K vector
         user_vectors = np.array([user_vectors for i in range(len(rating_matrix))])
     if flag == 0:  # used in item tree construction, item_vectors is a 1*K vector
@@ -18,6 +21,8 @@ def lossfunction_all(rating_matrix, item_vectors, user_vectors, flag):
     value = value + lmd_u * np.dot(user_l, user_l)
     item_l = item_vectors[np.nonzero(item_vectors)]
     value = value + lmd_v * np.dot(item_l, item_l)
+    # print "user: ", np.dot(user_l, user_l)
+    # print "item: ", np.dot(item_l, item_l)
 
     if len(rating_matrix) == 0:
         return value
@@ -27,14 +32,17 @@ def lossfunction_all(rating_matrix, item_vectors, user_vectors, flag):
     R = rating_matrix[np.nonzero(rating_matrix)]
     Err = P - R
     value = value + np.dot(Err, Err)
+    # print "add rmse: ", value
 
     np.random.seed(0)
     num_pair = 20
     num_user, num_item = rating_matrix.shape
     for i in range(num_pair):
         c1, c2 = np.random.randint(0, num_item * num_user, 2)
+        # print c1, c2
         u1, i1 = c1 // num_item, c1 % num_item
         u2, i2 = c2 // num_item, c2 % num_item
+        # print u2, i2
         if rating_matrix[u1][i1] > rating_matrix[u2][i2]:
             diff = np.dot(user_vectors[u1, :].T, item_vectors[i1, :]) - np.dot(user_vectors[u2, :].T,
                                                                                item_vectors[i2, :])
@@ -84,6 +92,7 @@ def selfgradv(rating_matrix, item_vector, current_vector, user_vectors):
         u1, i1 = c1 // num_item, c1 % num_item
         if rating_matrix[u1][i1] != 0:
             delta_v += -2 * (rating_matrix[u1][i1] - np.dot(user_vectors[u1], item_vector)) * user_vectors[u1] + 2 * lmd_v * item_vector
+    # print delta_v
     for i in range(num_pair):
         c1, c2 = np.random.randint(0, num_item * num_user, 2)
         u1, i1 = c1 // num_item, c1 % num_item
@@ -121,11 +130,13 @@ def cf_user(rating_matrix, item_vectors, current_vector, indices, K):
 def cf_item(rating_matrix, user_vectors, current_vector, indices, K):
     np.random.seed(0)
     item_vector = np.random.random(size=current_vector.shape)
+    # print item_vector
     rating_matrix = rating_matrix[:, indices]
     num_iter = 1000
     eps = 1e-8
     lr = 0.1
     sum_square_v = eps + np.zeros_like(item_vector)
+    # print sum_square_v
 
     # SGD procedure:
     for i in range(num_iter):
@@ -154,6 +165,7 @@ def cal_splitvalue(rating_matrix, item_vectors, current_vector, indices_like, in
         pre_like = np.dot(like_vector, item_vectors.T)
         Err_like = pre_like[np.nonzero(like)] - like[np.nonzero(like)]
         value = value + np.dot(Err_like, Err_like)
+        # print np.dot(Err_like, Err_like)
 
     if len(indices_dislike) > 0:
         # print(indices_dislike)
@@ -162,6 +174,7 @@ def cal_splitvalue(rating_matrix, item_vectors, current_vector, indices_like, in
         pre_dislike = np.dot(dislike_vector, item_vectors.T)
         Err_dislike = pre_dislike[np.nonzero(dislike)] - dislike[np.nonzero(dislike)]
         value = value + np.dot(Err_dislike, Err_dislike)
+        # print np.dot(Err_dislike. Err_dislike)
 
     if len(indices_unknown) > 0:
         # print(indices_unknown)
@@ -179,6 +192,7 @@ def cal_splitvalue(rating_matrix, item_vectors, current_vector, indices_like, in
     item_l = item_vectors[np.nonzero(item_vectors)]
     value = value + lmd_v * np.dot(item_l, item_l)
 
+    # print value
     np.random.seed(0)
     num_pair = 20
 
@@ -186,6 +200,7 @@ def cal_splitvalue(rating_matrix, item_vectors, current_vector, indices_like, in
     if num_user * num_item != 0:
         for i in range(num_pair):
             c1, c2 = np.random.randint(0, num_item * num_user, 2)
+            # print c1, c2
             u1, i1 = c1 // num_item, c1 % num_item
             u2, i2 = c2 // num_item, c2 % num_item
             if like[u1][i1] > like[u2][i2]:
@@ -193,11 +208,13 @@ def cal_splitvalue(rating_matrix, item_vectors, current_vector, indices_like, in
                                                                                   item_vectors[i2, :])
                 diff = -diff
                 value = value + lmd_BPR * np.log(1 + np.exp(diff))
-
+    # print "after left", value
+    np.random.seed(0)
     num_user, num_item = dislike.shape
     if num_user * num_item != 0:
         for i in range(num_pair):
             c1, c2 = np.random.randint(0, num_item * num_user, 2)
+            # print c1, c2
             u1, i1 = c1 // num_item, c1 % num_item
             u2, i2 = c2 // num_item, c2 % num_item
             if dislike[u1][i1] > dislike[u2][i2]:
@@ -205,11 +222,15 @@ def cal_splitvalue(rating_matrix, item_vectors, current_vector, indices_like, in
                                                                                      item_vectors[i2, :])
                 diff = -diff
                 value = value + lmd_BPR * np.log(1 + np.exp(diff))
-
+    # print "after right", value
+    np.random.seed(0)
     num_user, num_item = unknown.shape
+    # print "empty shape: ", unknown.shape
+    # print num_item * num_user
     if num_user * num_item != 0:
         for i in range(num_pair):
             c1, c2 = np.random.randint(0, num_item * num_user, 2)
+            # print c1, c2
             u1, i1 = c1 // num_item, c1 % num_item
             u2, i2 = c2 // num_item, c2 % num_item
             if unknown[u1][i1] > unknown[u2][i2]:
@@ -217,7 +238,8 @@ def cal_splitvalue(rating_matrix, item_vectors, current_vector, indices_like, in
                                                                                      item_vectors[i2, :])
                 diff = -diff
                 value = value + lmd_BPR * np.log(1 + np.exp(diff))
-    print(value)
+    # print "after empty", value
+    # print(value)
     return value
 
 
@@ -232,7 +254,9 @@ def cal_splitvalueI(rating_matrix, user_vectors, current_vector, indices_like, i
 
     if len(indices_like) > 0:
         # print(indices_like)
+        # print current_vector
         like_vector = cf_item(rating_matrix, user_vectors, current_vector, indices_like, K)
+        # print like_vector
         like_vector = np.array([like_vector for i in range(len(indices_like))])
         pre_like = np.dot(user_vectors, like_vector.T)
         Err_like = pre_like[np.nonzero(like)] - like[np.nonzero(like)]
@@ -260,10 +284,10 @@ def cal_splitvalueI(rating_matrix, user_vectors, current_vector, indices_like, i
     dlkv_l = dislike_vector[np.nonzero(dislike_vector)]
     unkv_l = unknown_vector[np.nonzero(unknown_vector)]
     value = value + lmd_v * (np.dot(lkv_l, lkv_l) + np.dot(dlkv_l, dlkv_l) + np.dot(unkv_l, unkv_l))
-
+    # print value
     user_l = user_vectors[np.nonzero(user_vectors)]
     value = value + lmd_u * np.dot(user_l, user_l)
-
+    # print value
     np.random.seed(0)
     num_pair = 20
     num_user, num_item = like.shape
@@ -277,7 +301,7 @@ def cal_splitvalueI(rating_matrix, user_vectors, current_vector, indices_like, i
                                                                                   like_vector[i2, :])
                 diff = -diff
                 value = value + lmd_BPR * np.log(1 + np.exp(diff))
-
+    np.random.seed(0)
     num_user, num_item = dislike.shape
     if num_user * num_item != 0:
         for i in range(num_pair):
@@ -289,7 +313,7 @@ def cal_splitvalueI(rating_matrix, user_vectors, current_vector, indices_like, i
                                                                                      dislike_vector[i2, :])
                 diff = -diff
                 value = value + lmd_BPR * np.log(1 + np.exp(diff))
-
+    np.random.seed(0)
     num_user, num_item = unknown.shape
     if num_user * num_item != 0:
         for i in range(num_pair):
@@ -301,5 +325,5 @@ def cal_splitvalueI(rating_matrix, user_vectors, current_vector, indices_like, i
                                                                                      unknown_vector[i2, :])
                 diff = -diff
                 value = value + lmd_BPR * np.log(1 + np.exp(diff))
-    print(value)
+    # print(value)
     return value

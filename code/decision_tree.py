@@ -32,10 +32,10 @@ class Node:
         self.feature_index = None  # add feature_index to splits the data
         self.vector = None
 
-
 class Tree:
     # __init__() sets the root node, currentDepth and maxdepth of the tree
     def __init__(self, root_node, K, max_depth):
+        np.random.seed(0)
         self.root = root_node
         self.root.vector = np.random.rand(K)
         self.max_depth = max_depth
@@ -48,9 +48,9 @@ class Tree:
         # print("Before")
         # Traverse the tree till you reach the leaf
         while current_node.left != None or current_node.right != None or current_node.empty != None:
-            if answers[current_node.feature_index] == 0:
+            if answers[current_node.feature_index] == 1:
                 current_node = current_node.left
-            elif answers[current_node.feature_index] == 1:
+            elif answers[current_node.feature_index] == -1:
                 current_node = current_node.right
             else:
                 current_node = current_node.empty
@@ -58,6 +58,18 @@ class Tree:
         # return the user vector associated with the lead node
         # print("zzz", current_node.vector.shape)
         return current_node.vector
+
+    def print_tree(self, current_node, level):
+        if current_node == None:
+            print '\t' * level, "None"
+            return
+
+        print '\t' * level, current_node.feature_index
+        self.print_tree(current_node.left, level + 1)
+        self.print_tree(current_node.right, level + 1)
+        self.print_tree(current_node.empty, level + 1)
+
+
 
     def printtree(self, current_node):
         if current_node == None:
@@ -113,6 +125,9 @@ class Tree:
         print("Error Before: ", error_before)
         # Create a numy_array to hold the split_criteria Values
         split_values = np.zeros(len(opinion_matrix[0]))
+        index_left, index_right, index_empty = split(opinion_matrix, 0)
+        print opt.cal_splitvalue(rating_matrix, item_vectors, current_node.vector, index_left, index_right, index_empty, K)
+
         params = {}
         pool = mp.Pool()
 
@@ -135,6 +150,7 @@ class Tree:
             split_values[feature_index] = results[feature_index].get()
         pool.close()
         pool.join()
+        # print split_values
 
         bestFeature = np.argmin(split_values)
         print("bestFeature index: ", bestFeature)
@@ -168,7 +184,11 @@ class Tree:
         if len(indices_empty) > 0:
             empty_vector = opt.cf_user(rating_matrix, item_vectors, current_node.vector, indices_empty, K)
 
-        # CONDITION check condition RMSE Error check is CORRECT
+        # print left_vector
+        # print right_vector
+        # print empty_vector
+
+        # CONDITION check condxition RMSE Error check is CORRECT
         if split_values[bestFeature] < error_before:
             # Recursively call the fitTree_f function for left, right and empty Nodes creation
             current_node.left = Node(current_node, current_node.depth + 1)
@@ -204,7 +224,14 @@ class Tree:
         # Create a numy_array to hold the split_criteria Values
         split_values = np.zeros(len(opinion_matrix[0]))
         params = {}
-        pool = mp.Pool()
+        pool = mp.Pool(1)
+
+        # index_left, index_right, index_empty = split(opinion_matrix, 1)
+        # print index_left
+        # print index_right
+        # print index_empty
+
+        # print opt.cal_splitvalueI(rating_matrix, user_vectors, current_node.vector, index_left, index_right, index_empty, K)
 
         for feature_index in range(len(opinion_matrix[0])):
             # Split the rating_matrix into left, right and empty
@@ -212,6 +239,7 @@ class Tree:
 
             params[feature_index] = []
             params[feature_index].extend((rating_matrix, user_vectors, current_node.vector, indices_left, indices_right, indices_empty, K))
+
 
         # Calculate the split criteria value
         print("Calculating the split criteria value")

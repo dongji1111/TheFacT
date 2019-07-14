@@ -1,16 +1,14 @@
-# Import the Required Libraries
-# import autograd.numpy as np
 import numpy as np
 import math
 import decision_tree as dt
 import optimization as opt
+from tree import *
 import argparse
 from sklearn.metrics import mean_squared_error
+import os
 
-
-# load the data
 def getRatingMatrix(filename):
-    # Open the file for reading data
+    # open the file for reading data
     data = []
     data_fo = []
     feature = []
@@ -24,15 +22,15 @@ def getRatingMatrix(filename):
             data_fo.append(list2)
             for i in list2:
                 feature.append(i)
-
     data = np.array(data)
+
     # calculate the number of users, items and features in the dataset
     num_users = data[:, 0].max() + 1
-    print ("Number of users: ", num_users)
+    # print ("Number of users: ", num_users)
     num_items = data[:, 1].max() + 1
-    print ("Number of items: ", num_items)
+    # print ("Number of items: ", num_items)
     num_features = max(feature) + 1
-    print ("Number of features: ", num_features)
+    # print ("Number of features: ", num_features)
     
     # create rating matrix, and user_opinion, item_opinion matrices
     # user_opinion: user preference for each feature
@@ -53,70 +51,34 @@ def getRatingMatrix(filename):
     user_opinion = np.sign(user_opinion)
     item_opinion = np.sign(item_opinion)
 
-
-    # for i in range(len(user_opinion)):
-    #     for j in range(len(user_opinion[0])):
-    #         if user_opinion[i, j] > 0:
-    #             user_opinion[i, j] = 1
-    #         else:
-    #             if user_opinion[i, j] < 0:
-    #                 user_opinion[i, j] = -1
-    #             else:
-    #                 user_opinion[i, j] = 0
-
-    # for i in range(len(item_opinion)):
-    #     for j in range(len(item_opinion[0])):
-    #         if item_opinion[i, j] > 0:
-    #             item_opinion[i, j] = 1
-    #         else:
-    #             if item_opinion[i, j] < 0:
-    #                 item_opinion[i, j] = -1
-    #             else:
-    #                 item_opinion[i, j] = 0
     return rating_matrix, user_opinion, item_opinion
 
+def dcg_k(r, k):
+    r = np.asfarray(r)[:k]
+    if r.size != k:
+        raise ValueError('ranking list length < k')
+    return np.sum(r / np.log2(np.arange(2, r.size + 2)))
 
-# calculate NDCG for the prediction
-# predict: predicted label
-# gt: ground truth
-# N: parameter for NDCG
-def getNDCG(predict, gt, N):
-    NDCG = []
-    predict = np.array(predict)
-    gt = np.array(gt)
+def ndcg_k(r, k):
+    sorted_r = sorted(r, reverse=True)
+    idcg = dcg_k(sorted_r, k)
+    if not idcg:
+        return 0
+    return dcg_k(r, k) / idcg
 
-    fout = open('../results/reclist.txt', 'w')
-    for i in range(len(predict)):
-        arg_pred = np.argsort(-predict[i])
-        rec_pred = gt[i][arg_pred]
-        fout.write('user' + i + 'value of real rating with predict ranking :' + rec_pre)
-        rec_pred = [rec_pred[k] for k in range(N)]
-        arg_gt = np.argsort(-gt[i])
-        rec_gt = gt[i][arg_gt]
-        fout.write('user' + i + 'value of real rating with ideal ranking :' + rec_real)
-        rec_gt = [rec_gt[k] for k in range(N)]
+def get_ndcg(prediction, rating_matrix, k):
+    num_user, num_item = rating_matrix.shape
+    ndcg_overall = []
+    for i in range(num_user):
+        if rating_matrix[i].sum() == 0:
+            continue
+        else:
+            pred_list_index = np.argsort(-prediction[i])
+            pred_true_rating = rating_matrix[i][pred_list_index]
+            ndcg_overall.append(ndcg_k(pred_true_rating, k))
+    return np.mean(ndcg_overall)
 
-        dcg = 0
-        idcg = 0
-        for j in range(N):
-            dcg = dcg + rec_pred[j] / math.log2(j + 2)
-            idcg = idcg + rec_gt[j] / math.log2(j + 2)
-        NDCG.append(dcg / idcg)
-    print(NDCG)
-    ndcg_sum = 0
-    for i in range(len(NDCG)):
-        ndcg_sum = ndcg_sum + NDCG[i]
-    ndcg = ndcg_sum / len(NDCG)
-    return ndcg
-
-
-# solve ridge regression with stochastic gradient descent
-# num_dim: the dimension of latent factors
-# lr: learning rate
-# lambda_u: regularization parameter for user vectors
-# lambda_v: regularization parameter for item vectors
-# rating_matrix: the ground truth
-def MatrixFactorization(num_dim, lr, lamda_u, lambda_v, num_iters, rating_matrix):
+def MatrixFactorization(num_dim, lr, lambda_u, lambda_v, num_iters, rating_matrix):
 
     # get the nonzero values of the rating matrix
     np.random.seed(0)
@@ -135,148 +97,61 @@ def MatrixFactorization(num_dim, lr, lamda_u, lambda_v, num_iters, rating_matrix
         for i in range(num_records):
             u_id, v_id = user_index[i], item_index[i]
             r = rating_matrix[u_id, v_id]
-            print u_id, v_id, r
+            # print u_id, v_id, r
             # update latent factors of users and items
-            user_vector[u_id] += lr * ((r - np.dot(user_vector[u_id], item_vector[v_id])) * item_vector[v_id] - lambda_u * user_vectors[u_id])
-            item_vector[v_id] += lr * ((r - np.dot(user_vector[u_id], item_vector[v_id])) * user_vector[u_id] - lambda_v * item_vectors[v_id])
+            user_vector[u_id] += lr * ((r - np.dot(user_vector[u_id], item_vector[v_id])) * item_vector[v_id] - lambda_u * user_vector[u_id])
+            item_vector[v_id] += lr * ((r - np.dot(user_vector[u_id], item_vector[v_id])) * user_vector[u_id] - lambda_v * item_vector[v_id])
             
         # calculte the training error
         pred = np.dot(user_vector, item_vector.T)
         error = mean_squared_error(pred[mask_matrix], rating_matrix[mask_matrix])
     return user_vector, item_vector
-        
 
-def MF(k, lr, lambda_u, lambda_v, num_iters, filename):
-
-    file = open(filename, 'r')
-    lines = file.readlines()
-    num_users = 0
-    num_items = 0
-    userID = np.zeros((len(lines)), dtype=int)
-    itemID = np.zeros((len(lines)), dtype=int)
-    rating = np.zeros((len(lines)))
-    count = 0
-
-    print("Preparing data.........")
-    for line in lines:
-        listOfLine = line.split("\n")[0].split(",")
-        userID[count] = int(listOfLine[0])
-        if userID[count] + 1 > numberOfUsers:
-            numberOfUsers = userID[count] + 1
-        itemID[count] = int(listOfLine[1])
-        if itemID[count] + 1 > numberOfItems:
-            numberOfItems = itemID[count] + 1
-        rating[count] = float(listOfLine[2])
-        count = count + 1
-
-    # Inialization for the latent model.
-    np.random.seed(0)
-    user_vectors = np.random.rand(int(numberOfUsers), k)
-    item_vectors = np.random.rand(int(numberOfItems), k)
-
-    # parameter update by Stochastic Gradient Descent
-    print("Calculating error")
-    error = np.zeros((noOfIteration))
-    for i in range(noOfIteration):
-        print("Iteration times: ", i)
-        for j in range(len(lines)):
-            user_vectors[userID[j], :] = user_vectors[userID[j], :] + learningRate*((rating[j] - np.dot(user_vectors[userID[j],:], item_vectors[itemID[j],:]))*item_vectors[itemID[j], :]-lmd_u*user_vectors[userID[j], :])
-            item_vectors[itemID[j], :] = item_vectors[itemID[j], :] + learningRate*((rating[j] - np.dot(user_vectors[userID[j],:], item_vectors[itemID[j],:]))*user_vectors[userID[j], :]-lmd_v*item_vectors[itemID[j], :])
-
-        for j in range(len(lines)):
-            temp = rating[j] - np.dot(user_vectors[userID[j], :], item_vectors[itemID[j], :])
-            error[i] = error[i] + temp * temp
-        print(error[i])
-    return user_vectors, item_vectors
-
-
-def AlternateOptimization(rating_matrix, user_opinion, item_opinion, num_dim, max_depth):
-    # Save and print the Number of Users and Movies
+def AlternativeOptimization(rating_matrix, user_opinion, item_opinion, num_dim, max_depth, num_BPRpairs, lr, lambda_u, lambda_v,
+                            lambda_BPR, num_run, num_iter_user, num_iter_item, batch_size, random_seed):
     num_users, num_items = rating_matrix.shape
     num_features = user_opinion.shape[1]
-    print("Number of users", num_users)
-    print("Number of items", num_items)
-    print("Number of features", num_features)
-    print("Number of latent dimensions: ", num_dim)
-    print("Maximum depth of the regression tree: ", max_depth)
+    print "Number of users", num_users 
+    print "Number of items", num_items
+    print "Number of features", num_features
+    print "Number of latent dimensions: ", num_dim
+    print "Maximum depth of the regression tree: ", max_depth
     # initialize the parameters
-    lr = 0.05
-    lambda_u = 0.02
-    lambda_v = 0.02
-    num_iters = 50
 
-    # Create the user and item profile vector of appropriate size.
-    # Initialize the item vectors according to MF
-    user_vector, item_vector = MatrixFactorization(num_dim, lr, lambda_u, lambda_v, num_iters, rating_matrix)
+
+    user_vector, item_vector = MatrixFactorization(num_dim, lr, lambda_u, lambda_v, 50, rating_matrix)
     pred = np.dot(user_vector, item_vector.T)
 
     i = 0
-    print("Entering Main Loop of AlternateOptimization")
-    tree = dt.Tree(dt.Node(None, 1), num_dim, max_depth)
-    # create the tree with i=5 iterations.
-    while i < 5:
-        # log the previous results
+    # print "Alternatively create user tree and item tree"
+    while i < num_run:
         user_vector_old = user_vector
-        item_vector_old = item_vector
+        iterm_vector_old = item_vector
         pred_old = pred
 
+        print "********** Round", i, "create user tree **********"
+        user_tree = Tree(Node(None, 1), rating_matrix=rating_matrix, opinion_matrix=user_opinion, anchor_vectors=item_vector, lr=lr,
+                         num_dim=num_dim, max_depth=max_depth, num_BPRpairs=num_BPRpairs, lambda_anchor=lambda_v, lambda_target=lambda_u, 
+                         lambda_BPR=lambda_BPR, num_iter=num_iter_user, batch_size=batch_size, random_seed=random_seed)
+        user_tree.create_tree(user_tree.root, user_tree.opinion_matrix, user_tree.rating_matrix)
+        user_vector = user_tree.get_vectors()
+        user_vector = user_tree.personalization(user_vector)
 
-        # Create the decision Tree based on item_vectors
-        print("Creating tree, iter = ", i, "for user")
-        user_tree = dt.Tree(dt.Node(None, 1), num_dim, max_depth)
-        user_tree.fitTree_U(user_tree.root, user_opinion, rating_matrix, item_vector, num_dim)
+        print "********** Round", i, "create item tree **********"
+        item_tree = Tree(Node(None, 1), rating_matrix=rating_matrix.T, opinion_matrix=item_opinion, anchor_vectors=user_vector, lr=lr,
+                        num_dim=num_dim, max_depth=max_depth, num_BPRpairs=num_BPRpairs, lambda_anchor=lambda_u, lambda_target=lambda_v,
+                        lambda_BPR=lambda_BPR, num_iter=num_iter_item, batch_size=batch_size, random_seed=random_seed)
 
-        print("Getting the user vectors from tree.")
-        # Calculate the User vectors using dtree
-        user_vector = user_tree.getVectors_f(user_opinion, num_dim)
-        # adding personalized term
-        for idx in range(num_users):
-            indice = np.array([idx])
-            user_vector[idx] = opt.cf_user(rating_matrix, item_vector, user_vector[idx], indice, num_dim)
+        item_tree.create_tree(item_tree.root, item_tree.opinion_matrix, item_tree.rating_matrix)
+        item_vector = item_tree.get_vectors()
+        item_vector = item_tree.personalization(item_vector)
 
-        print("Creating Tree.. for i = ", i, "for item")
-        item_tree = dt.Tree(dt.Node(None, 1), num_dim, max_depth)
-        item_tree.fitTree_I(item_tree.root, item_opinion, rating_matrix, user_vector, num_dim)
-
-        print("Getting the item vectors from tree")
-        item_vector = decTreeI.getVectors_f(item_opinion, num_dim)
-        for idx in range(num_items):
-            indice = np.array([idx])
-            item_vectors[idx] = opt.cf_item(rating_matrix, user_vectors, item_vectors[idx], indice, num_dim)
-
-        # Calculate Error for Convergence check
         pred = np.dot(user_vector, item_vector.T)
-
-        error = (pred_old - pred).flatten()
-        err = np.dot(error, error)
-        if err < 0.1:
+        error = LA.norm(pred_old - pred) ** 2
+        if error < 0.1:
             break
         i = i + 1
-
-    return decTree, decTreeI, user_vectors, item_vectors
-
-
-def printTopKMovies(test, predicted, K):
-    # Gives top K  recommendations
-    print("Top Movies Not rated by the user")
-
-    for i in range(len(test)):
-        zero_list = []
-        item_list = []
-        for j in range(len(test[0])):
-            if test[i][j] == 0:
-                zero_list.append(predicted[i][j])  # rating value
-                item_list.append(j)  # item index
-
-            zero_array = np.array(zero_list)
-            item_array = np.array(item_list)
-
-            args = np.argsort(zero_array)
-            item_array = item_array[args]
-        if K < len(item_array):
-            print("user ", i, " : ", item_array[0:K])
-        else:
-            print("user", i, " : ", item_array)
+    return user_tree, item_tree, user_vector, item_vector
 
 
 if __name__ == "__main__":
@@ -286,35 +161,68 @@ if __name__ == "__main__":
     parser.add_argument("--test_file", help="test filename", default="../data/yelp_test.txt")
     parser.add_argument("--num_dim", help="the number of latent dimension", default=20)
     parser.add_argument("--max_depth", help="the maximum depth of the tree", default=6)
+    parser.add_argument("--lambda_u", help="regularization parameter for user vectors", default=1)
+    parser.add_argument("--lambda_v", help="regularization parameter for item vectors", default=1)
+    parser.add_argument("--lambda_bpr", help="regularization parameter for BPR term", default=100)
+    parser.add_argument("--num_BPRpairs", help="number of BPR pairs for each udpate", default=20)
+    parser.add_argument("--batch_size", help="batch size for stochastic gradient descent", default=100)
+    parser.add_argument("--num_iter_user", help="number of iterations for user vector update", default=20)
+    parser.add_argument("--num_iter_item", help="number of iterations for item vector udpate", default=1000)
+    parser.add_argument("--learning_rate", help="learning rate for sgd", default=0.05)
+    parser.add_argument("--random_seed", help="random seed for initialization and BPR calculation", default=0)
+    parser.add_argument("--num_run", help="number of iterations for alternatively creating the trees", default=5)
 
     args = parser.parse_args()
     train_file = args.train_file
     test_file = args.test_file
-    num_dim = int(args.num_dim)
-    max_depth = int(args.max_depth)
+    NUM_DIM = int(args.num_dim)
+    MAX_DEPTH = int(args.max_depth)
+    LAMBDA_U = float(args.lambda_u)
+    LAMBDA_V = float(args.lambda_v)
+    LAMBDA_BPR = float(args.lambda_bpr)
+    NUM_BPRPAIRS = int(args.num_BPRpairs)
+    BATCH_SIZE = int(args.batch_size)
+    NUM_ITER_U = int(args.num_iter_user)
+    NUM_ITER_V = int(args.num_iter_item)
+    lr = float(args.learning_rate)
+    random_seed = int(args.random_seed)
+    NUM_RUN = int(args.num_run)
+    print "********** Load training data **********"
     rating_matrix, user_opinion, item_opinion = getRatingMatrix(train_file)
 
     # build the Factorization tree with the training dataset
-    user_tree, item_tree, user_vector, item_vector = AlternateOptimization(user_opinion, item_opinion, rating_matrix, num_dim, max_depth, train_file)
+    user_tree, item_tree, user_vector, item_vector = AlternativeOptimization(rating_matrix=rating_matrix,
+                                                                           user_opinion=user_opinion, item_opinion=item_opinion,
+                                                                           num_dim=NUM_DIM, max_depth=MAX_DEPTH,
+                                                                           num_BPRpairs=NUM_BPRPAIRS, lr=lr,
+                                                                           lambda_u=LAMBDA_U, lambda_v=LAMBDA_V,
+                                                                           lambda_BPR=LAMBDA_BPR, num_run=NUM_RUN,
+                                                                           num_iter_user=NUM_ITER_U, num_iter_item=NUM_ITER_V,
+                                                                           batch_size=BATCH_SIZE, random_seed=random_seed)
     pred_rating = np.dot(user_vector, item_vector.T)
-    pred_rating[np.where[rating_matrix > 0]] = 0.0
     # save the results
+    if not os.path.exists("../results/"):
+        os.makedirs(directory)
     np.savetxt("../results/item_vector.txt", item_vector, fmt='%0.8f')
     np.savetxt("../results/user_vector.txt", user_vector, fmt="%0.8f")
-    np.savetxt("../results/rating_matrix.txt", pred_rating, fmt="%0.8f")
+    np.savetxt("../results/pred_rating.txt", pred_rating, fmt="%0.8f")
 
     # test on test data with the trained model
+    print "********** Load test data **********"
     test_rating, user_opinion_test, item_opinion_test = getRatingMatrix(test_file)
+    print "Number of users", test_rating.shape[0]
+    print "Number of items", test_rating.shape[1]
+    print "Number of features", user_opinion.shape[1]
 
     # get the NDCG results
-    print("print user tree")
-    user_tree.printtree(user_tree.root)
-    print("print item tree")
-    item_tree.printtree(item_tree.root)
-
-    NDCG = getNDCG(pred_rating, test_rating, 10)
-    print("NDCG@10: ", NDCG)
-    NDCG = getNDCG(pred_rating, test_rating, 20)
-    print("NDCG@20: ", NDCG)
-    NDCG = getNDCG(pred_rating, test_rating, 50)
-    print("NDCG@50: ", NDCG)
+    print "********** User tree **********"
+    user_tree.print_tree(user_tree.root)
+    print "********** Item tree **********" 
+    item_tree.print_tree(item_tree.root)
+    print "********** NDCG **********"
+    ndcg_10 = get_ndcg(pred_rating, test_rating, 10)
+    print "NDCG@10: ", ndcg_10
+    ndcg_20 = get_ndcg(pred_rating, test_rating, 20)
+    print "NDCG@20: ", ndcg_20
+    ndcg_50 = get_ndcg(pred_rating, test_rating, 50)
+    print "NDCG@50: ", ndcg_50
