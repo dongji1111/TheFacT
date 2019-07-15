@@ -8,7 +8,6 @@ from sklearn.metrics import mean_squared_error
 import os
 
 def getRatingMatrix(filename):
-    # open the file for reading data
     data = []
     data_fo = []
     feature = []
@@ -24,13 +23,9 @@ def getRatingMatrix(filename):
                 feature.append(i)
     data = np.array(data)
 
-    # calculate the number of users, items and features in the dataset
     num_users = data[:, 0].max() + 1
-    # print ("Number of users: ", num_users)
     num_items = data[:, 1].max() + 1
-    # print ("Number of items: ", num_items)
     num_features = max(feature) + 1
-    # print ("Number of features: ", num_features)
     
     # create rating matrix, and user_opinion, item_opinion matrices
     # user_opinion: user preference for each feature
@@ -67,9 +62,11 @@ def ndcg_k(r, k):
     return dcg_k(r, k) / idcg
 
 def get_ndcg(prediction, rating_matrix, k):
+
     num_user, num_item = rating_matrix.shape
     ndcg_overall = []
     for i in range(num_user):
+        # skip the user without any rating
         if rating_matrix[i].sum() == 0:
             continue
         else:
@@ -91,13 +88,10 @@ def MatrixFactorization(num_dim, lr, lambda_u, lambda_v, num_iters, rating_matri
     user_vector = np.random.rand(num_users, num_dim)
     item_vector = np.random.rand(num_items, num_dim)
 
-    # for each iteration
     for it in range(num_iters):
-        # for each non-zero rating records
         for i in range(num_records):
             u_id, v_id = user_index[i], item_index[i]
             r = rating_matrix[u_id, v_id]
-            # print u_id, v_id, r
             # update latent factors of users and items
             user_vector[u_id] += lr * ((r - np.dot(user_vector[u_id], item_vector[v_id])) * item_vector[v_id] - lambda_u * user_vector[u_id])
             item_vector[v_id] += lr * ((r - np.dot(user_vector[u_id], item_vector[v_id])) * user_vector[u_id] - lambda_v * item_vector[v_id])
@@ -116,14 +110,11 @@ def AlternativeOptimization(rating_matrix, user_opinion, item_opinion, num_dim, 
     print "Number of features", num_features
     print "Number of latent dimensions: ", num_dim
     print "Maximum depth of the regression tree: ", max_depth
-    # initialize the parameters
-
 
     user_vector, item_vector = MatrixFactorization(num_dim, lr, lambda_u, lambda_v, 50, rating_matrix)
     pred = np.dot(user_vector, item_vector.T)
 
     i = 0
-    # print "Alternatively create user tree and item tree"
     while i < num_run:
         user_vector_old = user_vector
         iterm_vector_old = item_vector
@@ -133,17 +124,20 @@ def AlternativeOptimization(rating_matrix, user_opinion, item_opinion, num_dim, 
         user_tree = Tree(Node(None, 1), rating_matrix=rating_matrix, opinion_matrix=user_opinion, anchor_vectors=item_vector, lr=lr,
                          num_dim=num_dim, max_depth=max_depth, num_BPRpairs=num_BPRpairs, lambda_anchor=lambda_v, lambda_target=lambda_u, 
                          lambda_BPR=lambda_BPR, num_iter=num_iter_user, batch_size=batch_size, random_seed=random_seed)
+        # create the user tree with the known item latent factors
         user_tree.create_tree(user_tree.root, user_tree.opinion_matrix, user_tree.rating_matrix)
         user_vector = user_tree.get_vectors()
+        # add the refinement to the leave nodes of user tree as personalized representation
         user_vector = user_tree.personalization(user_vector)
 
         print "********** Round", i, "create item tree **********"
         item_tree = Tree(Node(None, 1), rating_matrix=rating_matrix.T, opinion_matrix=item_opinion, anchor_vectors=user_vector, lr=lr,
                         num_dim=num_dim, max_depth=max_depth, num_BPRpairs=num_BPRpairs, lambda_anchor=lambda_u, lambda_target=lambda_v,
                         lambda_BPR=lambda_BPR, num_iter=num_iter_item, batch_size=batch_size, random_seed=random_seed)
-
+        # create the item tree with the learned user latent factors
         item_tree.create_tree(item_tree.root, item_tree.opinion_matrix, item_tree.rating_matrix)
         item_vector = item_tree.get_vectors()
+        # add the refinement to the leave nodes of item tree as personalized representation
         item_vector = item_tree.personalization(item_vector)
 
         pred = np.dot(user_vector, item_vector.T)
@@ -190,7 +184,7 @@ if __name__ == "__main__":
     print "********** Load training data **********"
     rating_matrix, user_opinion, item_opinion = getRatingMatrix(train_file)
 
-    # build the Factorization tree with the training dataset
+    # build the factorization tree with the training dataset
     user_tree, item_tree, user_vector, item_vector = AlternativeOptimization(rating_matrix=rating_matrix,
                                                                            user_opinion=user_opinion, item_opinion=item_opinion,
                                                                            num_dim=NUM_DIM, max_depth=MAX_DEPTH,

@@ -1,9 +1,7 @@
 import optimization as opt
 import multiprocessing as mp
-# import autograd.numpy as np
 import numpy as np
 from numpy import linalg as LA
-
 from copy_reg import pickle
 from types import MethodType
 
@@ -42,30 +40,32 @@ class Tree:
 
     def personalization(self, vector):
         for i in range(self.num_target):
-            # print "before: ", vector[i]
             user_rating = self.rating_matrix[np.array([i])]
             vector[i] = self.sgd_update(user_rating, vector[i])
-            # print "after: ", vector[i]
         return vector
 
     def calculate_loss(self, current_node, rating_matrix):
         np.random.seed(self.random_seed)
-
         target_vectors = np.array([current_node.vector for i in range(rating_matrix.shape[0])])
         value = 0
 
-        target_reg = LA.norm(target_vectors) ** 2
-        anchor_reg = LA.norm(self.anchor_vectors) ** 2
-        value += self.lambda_anchor * anchor_reg + self.lambda_target * target_reg
-
+        # add l2 difference term
         mask_matrix = np.nonzero(rating_matrix)
         pred = np.dot(target_vectors, self.anchor_vectors.T)
         value += LA.norm((rating_matrix - pred)[mask_matrix]) ** 2
+
+        # add regularization term
+        target_reg = LA.norm(target_vectors) ** 2
+        anchor_reg = LA.norm(self.anchor_vectors) ** 2
+        value += self.lambda_anchor * anchor_reg + self.lambda_target * target_reg
+        
+        # add BPR term
         value += self.get_BPR(rating_matrix, target_vectors)
 
         return value
 
     def split(self, opinion_matrix, feature_index):
+        # divide the users/items into three partitions according to the feature opinion
         index_left = np.where(opinion_matrix[:, feature_index] == 1.0)[0]
         index_right = np.where(opinion_matrix[:, feature_index] == -1.0)[0]
         index_empty = np.where(opinion_matrix[:, feature_index] == 0)[0]
@@ -79,7 +79,6 @@ class Tree:
             return delta
 
         np.random.seed(self.random_seed)
-        # target_vector += current_vector
         for i in range(self.batch_size):
             idx = np.random.randint(0, num_t * num_a)
             t, a = idx // num_a, idx % num_a
@@ -111,6 +110,7 @@ class Tree:
             sum_square += np.square(delta)
             lr_t = np.divide(self.lr, np.sqrt(sum_square))
             target_vector -= lr_t * delta
+        # induce the latent factors from parent nodes
         target_vector += current_vector
         
         return target_vector
@@ -125,6 +125,7 @@ class Tree:
         return err, vector
 
     def calculate_splitvalue(self, rating_matrix, current_vector, index_left, index_right, index_empty):
+        # calculate the loss of the partition
         left = rating_matrix[index_left]
         right = rating_matrix[index_right]
         empty = rating_matrix[index_empty]
@@ -157,11 +158,11 @@ class Tree:
         if num_t * num_a == 0:
             return 0 
         value = 0
+        # randomly sample num_BPRpairs pairs to get the BPR loss
         for i in range(self.num_BPRpairs):
             p1, p2 = np.random.randint(0, num_t * num_a, 2)
             t1, a1 = p1 // num_a, p1 % num_a
             t2, a2 = p2 // num_a, p2 % num_a
-            # print "pair index: ",t2, a2
             if rating_matrix[t1, a1] > rating_matrix[t2, a2]:
                 diff = np.dot(target_vector[t1].T, self.anchor_vectors[a1]) - np.dot(target_vector[t2].T, self.anchor_vectors[a2])
                 diff = -diff
@@ -171,7 +172,6 @@ class Tree:
 
     def print_tree(self, current_node, level=0):
         if current_node == None:
-            # print '\t' * level, "None"
             return
         print '\t' * level, current_node.feature_index
         self.print_tree(current_node.left, level + 1)
@@ -205,17 +205,14 @@ class Tree:
             print ">>>>>>>>>>>>>>>>>>> STOP: No rating matrix."
             return
 
-        # print ("Calculate constructing error in previous stage")
         error_old = self.calculate_loss(current_node, rating_matrix)
-        # print ("Loss before updating the tree: ", error_old)
 
-        # record the features
+        # record the loss of different partitions
         split_values = np.zeros(self.num_feature)
         index_left, index_right, index_empty = self.split(opinion_matrix, 1)
         
         # ####################################################
         # initialize the setting for multi processing
-        # pickle(MethodType, _pickle_method, _unpickle_method)
         params = {}
         pool = mp.Pool(1)
         for feature_index in range(self.num_feature):
@@ -223,7 +220,6 @@ class Tree:
             params[feature_index] = []
             params[feature_index].extend((rating_matrix, current_node.vector, index_left, index_right, index_empty))
 
-        # print ("Calculate the split criteria value")
         results = []
         # calculate the the split value in parallel
         for feature_index in range(self.num_feature):
@@ -236,20 +232,23 @@ class Tree:
         pool.join()
         ####################################################
 
+        # get the best feature which generates the minimum loss
         best_feature = np.argmin(split_values)
         current_node.feature_index = best_feature
         print "Best feature index: ", best_feature
 
-        # create the child nodes with the best feature
+        # divide the current node (rating matrix, opinion matrices) into three parts according to the best feature found
         index_left, index_right, index_empty = self.split(opinion_matrix, best_feature)
         left_rating_matrix, left_opinion_matrix = rating_matrix[index_left], opinion_matrix[index_left]
         right_rating_matrix, right_opinion_matrix = rating_matrix[index_right], opinion_matrix[index_right]
         empty_rating_matrix, empty_opinion_matrix = rating_matrix[index_empty], opinion_matrix[index_empty]
 
+        # get the updated latent representation of each child node
         left_vector = self.sgd_update(left_rating_matrix, current_node.vector)
         right_vector = self.sgd_update(right_rating_matrix, current_node.vector)
         empty_vector = self.sgd_update(empty_rating_matrix, current_node.vector)
 
+        # recursively create the tree for the child node until covernge
         if split_values[best_feature] < error_old:
             # left child tree
             current_node.left = Node(parent_node=current_node, node_depth=current_node.depth + 1)
