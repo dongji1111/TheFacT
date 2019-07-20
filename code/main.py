@@ -1,7 +1,7 @@
 import numpy as np
 import math
-import decision_tree as dt
-import optimization as opt
+# import decision_tree as dt
+# import optimization as opt
 from tree import *
 import argparse
 from sklearn.metrics import mean_squared_error
@@ -26,25 +26,32 @@ def getRatingMatrix(filename):
     num_users = data[:, 0].max() + 1
     num_items = data[:, 1].max() + 1
     num_features = max(feature) + 1
+    print num_features
     
     # create rating matrix, and user_opinion, item_opinion matrices
     # user_opinion: user preference for each feature
     # item_opinion: item performance on each feature
     rating_matrix = np.zeros((num_users, num_items), dtype=float)
-    user_opinion = np.zeros((num_users, num_features), dtype=float)
-    item_opinion = np.zeros((num_items, num_features), dtype=float)
+    user_opinion = np.full((num_users, num_features), np.nan)
+    item_opinion = np.full((num_items, num_features), np.nan)
     # update the matrices with input data
     # get the accumulated feature opinion scores for users and items.
     for i in range(len(data)):
         user_id, item_id, rating = data[i]
         rating_matrix[user_id][item_id] = rating
+        num_pos = 0
+        num_neg = 0
         for j in range(0, len(data_fo[i]), 2):
-            user_opinion[user_id][data_fo[i][j]] += data_fo[i][j + 1]
-            item_opinion[item_id][data_fo[i][j]] += data_fo[i][j + 1]
-
-    # use the sign function to change the accumulated opinion matrices
-    user_opinion = np.sign(user_opinion)
-    item_opinion = np.sign(item_opinion)
+            # for user, count the frequency
+            if np.isnan(user_opinion[user_id][data_fo[i, j]]):
+                user_opinion[user_id][data_fo[i, j]] = 1
+            else:
+                user_opinion[user_id][data_fo[i, j]] += 1
+            # for item, count the sentiment score
+            if np.isnan(item_opinion[item_id][data_fo[i, j]]):
+                item_opinion[item_id][data_fo[i, j]] = data_fo[i, j+1]
+            else:
+                item_opinion[item_id][data_fo[i, j]] += data_fo[i, j+1]
 
     return rating_matrix, user_opinion, item_opinion
 
@@ -126,8 +133,10 @@ def AlternativeOptimization(rating_matrix, user_opinion, item_opinion, num_dim, 
                          lambda_BPR=lambda_BPR, num_iter=num_iter_user, batch_size=batch_size, random_seed=random_seed)
         # create the user tree with the known item latent factors
         user_tree.create_tree(user_tree.root, user_tree.opinion_matrix, user_tree.rating_matrix)
+        print "get user vectors"
         user_vector = user_tree.get_vectors()
         # add the refinement to the leave nodes of user tree as personalized representation
+        print "add personalized term"
         user_vector = user_tree.personalization(user_vector)
 
         print "********** Round", i, "create item tree **********"

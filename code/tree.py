@@ -1,4 +1,4 @@
-import optimization as opt
+# import optimization as opt
 import multiprocessing as mp
 import numpy as np
 from numpy import linalg as LA
@@ -8,7 +8,8 @@ from types import MethodType
 
 class Node:
     def __init__(self, parent_node, node_depth):
-        self.feature_index = None 
+        self.feature_index = None
+        self.predicate = 0
         self.parent = parent_node
         self.depth = node_depth
         self.left = None
@@ -37,6 +38,7 @@ class Tree:
         self.num_iter = num_iter
         self.batch_size = batch_size
         self.lr = lr
+        self.num_bin = 5
 
     def personalization(self, vector):
         for i in range(self.num_target):
@@ -64,11 +66,19 @@ class Tree:
 
         return value
 
-    def split(self, opinion_matrix, feature_index):
+    def get_predicate(self, opinion_matrix, feature_index):
+        op = opinion_matrix[:, feature_index]
+        sorted_op = sorted(op)
+        num_known = np.count_nonzero(~np.isnan(sorted_op))
+        bin_interval = num_known // self.num_bin
+        predicate_list = np.unique([sorted_op[(i + 1) * bin_interval] for i in range(self.num_bin - 1)])
+        return predicate_list
+
+    def split(self, opinion_matrix, feature_index, split_value):
         # divide the users/items into three partitions according to the feature opinion
-        index_left = np.where(opinion_matrix[:, feature_index] == 1.0)[0]
-        index_right = np.where(opinion_matrix[:, feature_index] == -1.0)[0]
-        index_empty = np.where(opinion_matrix[:, feature_index] == 0)[0]
+        index_left = np.where(opinion_matrix[:, feature_index] >= split_value)[0]
+        index_right = np.where(opinion_matrix[:, feature_index] < split_value)[0]
+        index_empty = np.where(opinion_matrix[:, feature_index] == np.nan)[0]
         
         return index_left, index_right, index_empty
 
@@ -184,17 +194,91 @@ class Tree:
             current_node = self.root
 
             while current_node.left != None or current_node.right != None or current_node.empty != None:
-                next = {}
-                next[1] = current_node.left
-                next[-1] = current_node.right
-                next[0] = current_node.empty
-                current_node = next[self.opinion_matrix[i][current_node.feature_index]]
+                if np.isnan(self.opinion_matrix[i][current_node.feature_index]):
+                    current_node = current_node.empty
+                elif self.opinion_matrix[i][current_node.feature_index] < current_node.predicate:
+                    current_node = current_node.left
+                elif self.opinion_matrix[i][current_node.feature_index] >= current_node.predicate:
+                    current_node = current_node.right
             vectors[i] = current_node.vector
         return vectors
 
     def __call__(self, rating_matrix, current_vector, index_left, index_right, index_empty):
         r = self.calculate_splitvalue(rating_matrix, current_vector, index_left, index_right, index_empty)
         return r
+
+    def get_best_predicate(self, current_node, opinion_matrix, rating_matrix):
+        predicate = np.full((self.num_feature, self.num_bin - 1), np.nan)
+        split_value = np.full((self.num_feature, self.num_bin - 1), np.inf)
+
+        # get all the predicate
+        for feature_index in range(self.num_feature):
+            predicate_list = self.get_predicate(opinion_matrix, feature_index)
+            predicate[feature_index][:len(predicate_list)] = predicate_list
+        # calculate all the predicate values
+        for feature_index in range(self.num_feature):
+            for predicate_index in range(self.num_bin - 1):
+                if np.isnan(predicate[feature_index][predicate_index]):
+                    continue
+                else:
+                    print feature_index, predicate[feature_index][predicate_index]
+                    index_left, index_right, index_empty = self.split(opinion_matrix, feature_index, predicate[feature_index][predicate_index])
+                    split_value[feature_index][predicate_index] = self.calculate_splitvalue(rating_matrix, current_node.vector, index_left, index_right, index_empty)
+
+        # find the best predicate: feature index, predicate value
+        ridx, cidx = np.where(split_value == split_value.min())
+        # only use the first if several minimums are returned
+        ridx = ridx[0]
+        cidx = cidx[0]
+
+        return split_value.min(), ridx, predicate[ridx][cidx]
+
+    def get_best_predicate_parallel(self, current_node, opinion_matrix, rating_matrix):
+        predicate = np.full((self.num_feature, self.num_bin - 1), np.nan)
+        split_value = np.full((self.num_feature, self.num_bin - 1), np.inf)
+
+        # get all the predicate
+        for feature_index in range(self.num_feature):
+            predicate_list = self.get_predicate(opinion_matrix, feature_index)
+            predicate[feature_index] = predicate_list
+
+        # prepare the parameters for parallel computing
+        params = {}
+        c = 0
+        for feature_index in range(self.num_feature):
+            params[feature_index] = {}
+            for predicate_index in range(self.num_bin - 1):
+                if np.isnan(predicate[feature_index][predicate_index]):
+                    continue
+                else:
+                    params[feature_index][predicate_index] = []
+                    index_left, index_right, index_empty = self.split(opinion_matrix, feature_index, predicate[feature_index][predicate_index])
+                    params[feature_index][predicate_index].extend(rating_matrix, current_node,vector, index_left, index_right, index_empty)
+                    c += 1
+        #### set up multiprocessing
+        pool = mp.Pool()
+        results = {}
+        for feature_index in range(self.num_feature):
+            results[feature_index] = []
+            for predicate_index in range(self.num_bin - 1):
+                if np.isnan(predicate[feature_index][predicate_index]):
+                    continue
+                else:
+                    result = pool.apply_async(self, params[feature_index][predicate_index])
+                    results[feature_index].append(result)
+        for feature_index in range(self.num_feature):
+            for predicate_index in range(self.num_bin - 1):
+                try:
+                    split_value[feature_index][predicate_index] = results[feature_index][predicate_index].get()
+                except:
+                    continue
+
+        ridx, cidx = np.where(split_value == split_value.min())
+        # only use the first if several minimums are returned
+        ridx = ridx[0]
+        cidx = cidx[0]
+
+        return split_value.min(), ridx, predicate[ridx][cidx]
 
     def create_tree(self, current_node, opinion_matrix, rating_matrix):
         print "Current depth: ", current_node.depth
@@ -207,38 +291,14 @@ class Tree:
 
         error_old = self.calculate_loss(current_node, rating_matrix)
 
-        # record the loss of different partitions
-        split_values = np.zeros(self.num_feature)
-        index_left, index_right, index_empty = self.split(opinion_matrix, 1)
-        
-        # ####################################################
-        # initialize the setting for multi processing
-        params = {}
-        pool = mp.Pool(1)
-        for feature_index in range(self.num_feature):
-            index_left, index_right, index_empty = self.split(opinion_matrix, feature_index)
-            params[feature_index] = []
-            params[feature_index].extend((rating_matrix, current_node.vector, index_left, index_right, index_empty))
-
-        results = []
-        # calculate the the split value in parallel
-        for feature_index in range(self.num_feature):
-            result = pool.apply_async(self, params[feature_index])
-            results.append(result)
-        # retrieve the calculated results into split_values
-        for feature_index in range(self.num_feature):
-            split_values[feature_index] = results[feature_index].get()
-        pool.close()
-        pool.join()
-        ####################################################
-
-        # get the best feature which generates the minimum loss
-        best_feature = np.argmin(split_values)
+        min_split_value, best_feature, best_predicate = self.get_best_predicate(current_node, opinion_matrix, rating_matrix)
+        print min_split_value, best_feature, best_predicate
         current_node.feature_index = best_feature
-        print "Best feature index: ", best_feature
+        current_node.predicate = best_predicate
+        ### you can also use the parallel version
+        # best_feature, best_predicate = self.get_best_predicate_parallel(current_node, opinion_matrix, rating_matrix)
 
-        # divide the current node (rating matrix, opinion matrices) into three parts according to the best feature found
-        index_left, index_right, index_empty = self.split(opinion_matrix, best_feature)
+        index_left, index_right, index_empty = self.split(opinion_matrix, best_feature, best_predicate)
         left_rating_matrix, left_opinion_matrix = rating_matrix[index_left], opinion_matrix[index_left]
         right_rating_matrix, right_opinion_matrix = rating_matrix[index_right], opinion_matrix[index_right]
         empty_rating_matrix, empty_opinion_matrix = rating_matrix[index_empty], opinion_matrix[index_empty]
@@ -249,7 +309,7 @@ class Tree:
         empty_vector = self.sgd_update(empty_rating_matrix, current_node.vector)
 
         # recursively create the tree for the child node until covernge
-        if split_values[best_feature] < error_old:
+        if min_split_value < error_old:
             # left child tree
             current_node.left = Node(parent_node=current_node, node_depth=current_node.depth + 1)
             current_node.left.vector = left_vector
