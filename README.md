@@ -1,10 +1,11 @@
 # The FacT
 
-This is the implementation for the paper titled "The FacT: Taming Latent Factor Models for Explainability with Factorization Trees" published at SIGIR 2019. We provide all the source codes for the algorithm.
+This is an implementation for the paper titled "The FacT: Taming Latent Factor Models for Explainability with Factorization Trees" published at SIGIR 2019. 
 
 ### Algorithm
 The FacT model aims at explaining latent factor based recommendation algorithms with rule-based explanations. It integrates regression trees to guide the learning of latent factor models for recommendation, and uses the learned tree structure to explain the resulting latent factors. With user-generated reviews, regression trees on users and items are built respectively, and each node on the trees are asscoiated with a latent profile to represent users and items. The detailed algorithm can be found in the [paper](https://arxiv.org/pdf/1906.02037.pdf).
 
+ 
 ### Usage
 To run the code to generate experimental results like those found in our papers, you will need to run a command in the following format, using Python 2:
 ```
