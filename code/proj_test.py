@@ -89,38 +89,7 @@ def getRatingMatrix(filename):
         return ratingMatrix, opinionMatrix, opinionMatrix_I
 
 
-def getNDCG(predict, real, N):
-    NDCG = []
-    predict = np.array(predict)
-    real = np.array(real)
-    #fout = open('reclist.txt', 'w')
-    for i in range(len(predict)):
-        arg_pre = np.argsort(-predict[i])
-        rec_pre = real[i][arg_pre]
-        #fout.write('user'+ str(i)+ 'value of real rating with predict ranking :'+str(rec_pre))
-        rec_pre = [rec_pre[k] for k in range(N)]  # value of real rating with Top N predict recommendation
-        # rec_pre = np.array(rec_pre)
-        arg_real = np.argsort(-real[i])  # ideal ranking of real rating with Top N
-        rec_real = real[i][arg_real]
-        #fout.write('user', str(i)+'value of real rating with ideal ranking :'+ str(rec_real))
-        rec_real = [rec_real[k] for k in range(N)]
-        # print("rec_pre",rec_pre)
-        # print("rec_real",rec_real)
-        dcg = 0
-        idcg = 0
-        for j in range(N):
-            dcg = dcg + rec_pre[j] / math.log2(j + 2)
-            idcg = idcg + rec_real[j] / math.log2(j + 2)
-        #print("dcg",dcg)
-        #print("idcg",idcg)
-        if(idcg!=0):
-            NDCG.append(dcg / idcg)
-    print(NDCG)
-    sum = 0
-    for i in range(len(NDCG)):
-        sum = sum + NDCG[i]
-    ndcg = sum / len(NDCG)
-    return ndcg
+
 
 '''
 Use Numba.cuda to accelerate the matrix factorization
@@ -281,36 +250,3 @@ def printTopKMovies(test, predicted, K):
             print("user", i, " : ", item_array)
 
 
-if __name__ == "__main__":
-    # Get the Data
-    #File_train, File_test, MAX_DEPTH, NUM_OF_FACTORS = sys.argv[1:]
-    File_train = "test_train.txt"
-    (rating_matrix, opinion_matrix, opinion_matrixI) = getRatingMatrix(File_train)
-    print("Dimensions of the training dataset: ", rating_matrix.shape)
-    # Set the number of Factors
-
-    NUM_OF_FACTORS = 20
-    MAX_DEPTH = 6
-    user_vectors, item_vectors = MF(20, 0.05, 0.02, 0.02, 100, File_train)
-    # Build decision tree on training set
-    (decisionTree, decisionTreeI, user_vectors, item_vectors) = alternateOptimization(opinion_matrix,
-                                                                                      opinion_matrixI,rating_matrix,NUM_OF_FACTORS,MAX_DEPTH, File_train)
-
-    #user_vectors,item_vectors=MF(20, 0.05, 0.02,0.02, 1000, File)
-    Predicted_Rating = np.dot(user_vectors, item_vectors.T)
-    np.savetxt('item_vectors6.txt', item_vectors, fmt='%0.8f')
-    np.savetxt('user_vectors6.txt', user_vectors, fmt='%0.8f')
-    np.savetxt('rating_predict6.txt', Predicted_Rating, fmt='%0.8f')
-    print("print user tree")
-    #decisionTree.printtree(decisionTree.root)
-    print("print item tree")
-    #decisionTree.printtree(decisionTreeI.root)
-    File_test = "test_test.txt"
-    (test_r, test_opinion, test_opinionI) = getRatingMatrix(File_test)
-    #Predicted_Rating[np.where(rating_matrix[:, :] > 0)] = 0.0
-    NDCG = getNDCG(Predicted_Rating, test_r, 10)
-    #print("NDCG@10: ", NDCG)
-    NDCG = getNDCG(Predicted_Rating, test_r, 20)
-    #print("NDCG@20: ", NDCG)
-    NDCG = getNDCG(Predicted_Rating, test_r, 50)
-    #print("NDCG@50: ", NDCG)
