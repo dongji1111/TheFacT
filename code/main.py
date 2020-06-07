@@ -55,33 +55,6 @@ def getRatingMatrix(filename):
 
     return rating_matrix, user_opinion, item_opinion
 
-def dcg_k(r, k):
-    r = np.asfarray(r)[:k]
-    if r.size != k:
-        raise ValueError('ranking list length < k')
-    return np.sum(r / np.log2(np.arange(2, r.size + 2)))
-
-def ndcg_k(r, k):
-    sorted_r = sorted(r, reverse=True)
-    idcg = dcg_k(sorted_r, k)
-    if not idcg:
-        return 0
-    return dcg_k(r, k) / idcg
-
-def get_ndcg(prediction, rating_matrix, k):
-
-    num_user, num_item = rating_matrix.shape
-    ndcg_overall = []
-    for i in range(num_user):
-        # skip the user without any rating
-        if rating_matrix[i].sum() == 0:
-            continue
-        else:
-            pred_list_index = np.argsort(-prediction[i])
-            pred_true_rating = rating_matrix[i][pred_list_index]
-            ndcg_overall.append(ndcg_k(pred_true_rating, k))
-    return np.mean(ndcg_overall)
-
 def MatrixFactorization(num_dim, lr, lambda_u, lambda_v, num_iters, rating_matrix):
 
     # get the nonzero values of the rating matrix
@@ -173,7 +146,7 @@ if __name__ == "__main__":
     parser.add_argument("--num_iter_item", help="number of iterations for item vector udpate", default=1000)
     parser.add_argument("--learning_rate", help="learning rate for sgd", default=0.05)
     parser.add_argument("--random_seed", help="random seed for initialization and BPR calculation", default=0)
-    parser.add_argument("--num_run", help="number of iterations for alternatively creating the trees", default=5)
+    parser.add_argument("--num_run", help="number of iterations for alternatively creating the trees", default=100)
 
     args = parser.parse_args()
     train_file = args.train_file
@@ -209,23 +182,3 @@ if __name__ == "__main__":
     np.savetxt("../results/item_vector.txt", item_vector, fmt='%0.8f')
     np.savetxt("../results/user_vector.txt", user_vector, fmt="%0.8f")
     np.savetxt("../results/pred_rating.txt", pred_rating, fmt="%0.8f")
-
-    # test on test data with the trained model
-    print "********** Load test data **********"
-    test_rating, user_opinion_test, item_opinion_test = getRatingMatrix(test_file)
-    print "Number of users", test_rating.shape[0]
-    print "Number of items", test_rating.shape[1]
-    print "Number of features", user_opinion.shape[1]
-
-    # get the NDCG results
-    print "********** User tree **********"
-    user_tree.print_tree(user_tree.root)
-    print "********** Item tree **********" 
-    item_tree.print_tree(item_tree.root)
-    print "********** NDCG **********"
-    ndcg_10 = get_ndcg(pred_rating, test_rating, 10)
-    print "NDCG@10: ", ndcg_10
-    ndcg_20 = get_ndcg(pred_rating, test_rating, 20)
-    print "NDCG@20: ", ndcg_20
-    ndcg_50 = get_ndcg(pred_rating, test_rating, 50)
-    print "NDCG@50: ", ndcg_50
